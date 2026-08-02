@@ -70,6 +70,31 @@
     }
     .screen.active { display: flex; }
 
+    /* --- Screensaver Styles --- */
+    #screen-screensaver {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100dvh;
+      background: #000;
+      z-index: 1000;
+      overflow: hidden;
+    }
+    #screen-screensaver:not(.hidden) {
+      display: block;
+    }
+    #ssText {
+      position: absolute;
+      font-family: 'Sour Gummy', sans-serif;
+      font-size: 15vw; /* Fills screen width */
+      font-weight: 900;
+      color: #FF416C;
+      text-align: center;
+      line-height: 1.1;
+      text-shadow: 4px 4px 15px rgba(255, 255, 255, 0.2);
+      user-select: none;
+      white-space: nowrap;
+    }
+    /* -------------------------- */
+
     /* Numpad Styles */
     .pin-display {
       display: flex;
@@ -268,6 +293,11 @@
 </head>
 <body>
 
+  <!-- Fullscreen Bouncing Screensaver -->
+  <div id="screen-screensaver" class="hidden">
+    <div id="ssText">IDE<br>STICKER<br>PRINTS</div>
+  </div>
+
   <h1>Ide Sticker Prints</h1>
 
   <!-- Welcome Screen is now the First Screen -->
@@ -427,11 +457,14 @@
     const PHOTO_WIDTH = Math.floor(TARGET_WIDTH * 0.82);
     const PHOTO_HEIGHT = Math.floor((TARGET_HEIGHT - TOP_CAPTION_HEIGHT - BOTTOM_CAPTION_HEIGHT - Y_SHIFT) * 0.96);
 
+    const screenScreensaver = document.getElementById('screen-screensaver');
+    const ssText = document.getElementById('ssText');
     const screenLock = document.getElementById('screen-lock');
     const screenWelcome = document.getElementById('screen-welcome');
     const screenLayout = document.getElementById('screen-layout');
     const screenCamera = document.getElementById('screen-camera');
     const screenEdit = document.getElementById('screen-edit');
+    
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const offscreenCanvas = document.getElementById('offscreenCanvas');
@@ -467,6 +500,81 @@
     let currentPhotoCount = 0;
     let cameraStream = null;
     let currentFacingMode = 'user';
+
+    // --- SCREENSAVER LOGIC ---
+    let ssX = 50, ssY = 50;
+    let ssDirX = 2.5, ssDirY = 2.5; 
+    let ssReq;
+    const ssColors = ['#FF416C', '#F7B733', '#3b82f6', '#23d5ab', '#e73c7e', '#ffffff'];
+
+    function animateScreensaver() {
+      if (screenScreensaver.classList.contains('hidden')) return;
+
+      let rect = ssText.getBoundingClientRect();
+      let ww = window.innerWidth;
+      let wh = window.innerHeight;
+
+      let hit = false;
+      if (ssX + rect.width >= ww) { ssX = ww - rect.width; ssDirX *= -1; hit = true; }
+      if (ssX <= 0) { ssX = 0; ssDirX *= -1; hit = true; }
+      if (ssY + rect.height >= wh) { ssY = wh - rect.height; ssDirY *= -1; hit = true; }
+      if (ssY <= 0) { ssY = 0; ssDirY *= -1; hit = true; }
+
+      if (hit) {
+        ssText.style.color = ssColors[Math.floor(Math.random() * ssColors.length)];
+      }
+
+      ssX += ssDirX;
+      ssY += ssDirY;
+      ssText.style.transform = `translate(${ssX}px, ${ssY}px)`;
+      
+      ssReq = requestAnimationFrame(animateScreensaver);
+    }
+
+    function showScreensaver() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      captionInput.value = '';
+      currentPhotoCount = 0;
+      clearPin();
+      
+      // Hide all normal screens
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      
+      // Show Screensaver
+      screenScreensaver.classList.remove('hidden');
+      
+      // Random start position
+      ssX = Math.random() * (window.innerWidth - 200) + 50;
+      ssY = Math.random() * (window.innerHeight - 200) + 50;
+      
+      if(ssReq) cancelAnimationFrame(ssReq);
+      animateScreensaver();
+    }
+
+    // Double Tap to Wake up and show PIN screen
+    let lastTap = 0;
+    function handleDoubleTap(e) {
+      let currentTime = new Date().getTime();
+      let tapLength = currentTime - lastTap;
+      if (tapLength < 500 && tapLength > 0) {
+        screenScreensaver.classList.add('hidden');
+        cancelAnimationFrame(ssReq);
+        switchScreen(screenLock); 
+        e.preventDefault();
+      }
+      lastTap = currentTime;
+    }
+    
+    screenScreensaver.addEventListener('touchend', handleDoubleTap);
+    screenScreensaver.addEventListener('dblclick', function(e) {
+      screenScreensaver.classList.add('hidden');
+      cancelAnimationFrame(ssReq);
+      switchScreen(screenLock);
+    });
+    // -------------------------
 
     // --- COPIES LOGIC ---
     function updateCopiesUI() {
@@ -523,12 +631,10 @@
 
     function verifyPin() {
       if (currentPin === ATTENDANT_PIN) {
-        // Success: Route to Layout screen
         currentPin = "";
         updatePinDots();
         switchScreen(screenLayout);
       } else {
-        // Fail: Shake animation and reset
         const lockBox = document.getElementById('lockBox');
         lockBox.classList.add('shake');
         setTimeout(() => {
@@ -539,7 +645,7 @@
     }
     // -----------------
 
-    // --- 5 MINUTE INACTIVITY & LOCKING ---
+    // --- 5 MINUTE INACTIVITY TO SCREENSAVER ---
     let inactivityTimer;
     function lockApp() {
       if (cameraStream) {
@@ -554,16 +660,17 @@
 
     function resetInactivity() {
       clearTimeout(inactivityTimer);
-      // Only run inactivity timer if NOT on the lock screen AND NOT on the welcome screen
-      if (!screenLock.classList.contains('active') && !screenWelcome.classList.contains('active')) {
-        inactivityTimer = setTimeout(lockApp, 5 * 60 * 1000); // 5 minutes
+      // Run inactivity timer if NOT on the welcome screen AND NOT already on screensaver
+      if (!screenWelcome.classList.contains('active') && screenScreensaver.classList.contains('hidden')) {
+        inactivityTimer = setTimeout(showScreensaver, 5 * 60 * 1000); // 5 minutes triggers screensaver
       }
     }
 
     ['click', 'touchstart', 'input'].forEach(evt => document.addEventListener(evt, resetInactivity));
     
+    // Attendant Manual Lock button still goes to PIN screen
     manualLockBtn.addEventListener('click', lockApp);
-    // ----------------------------------
+    // ------------------------------------------
 
     function switchScreen(activeScreen) {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -598,7 +705,6 @@
 
         if (!printCharacteristic) throw new Error("No writable characteristics found.");
         
-        // On successful connection, restore button text and go to Lock Screen
         connectBtn.innerHTML = '<span class="icon">🔗</span><span>Connect<br>Printer</span>';
         switchScreen(screenLock);
 
@@ -828,7 +934,6 @@
       const printHeight = TARGET_WIDTH;
       const widthBytes = Math.ceil(printWidth / 8);
       
-      // Dynamic Print Copies added to TSPL string here
       const headerStr = `SIZE 80 mm, 50 mm\r\nCLS\r\nBITMAP 0,0,${widthBytes},${printHeight},0,`;
       const footerStr = `\r\nPRINT ${printCopies}\r\n`;
       
@@ -888,7 +993,6 @@
           await new Promise(resolve => setTimeout(resolve, 20));
         }
 
-        // Restore dynamic print text
         updateCopiesUI();
         printBtn.disabled = false;
 
