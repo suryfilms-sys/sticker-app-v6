@@ -645,7 +645,7 @@
     }
     // -----------------
 
-    // --- 5 MINUTE INACTIVITY TO SCREENSAVER ---
+    // --- 2 MINUTE INACTIVITY TO SCREENSAVER ---
     let inactivityTimer;
     function lockApp() {
       if (cameraStream) {
@@ -662,7 +662,7 @@
       clearTimeout(inactivityTimer);
       // Run inactivity timer if NOT on the welcome screen AND NOT already on screensaver
       if (!screenWelcome.classList.contains('active') && screenScreensaver.classList.contains('hidden')) {
-        inactivityTimer = setTimeout(showScreensaver, 5 * 60 * 1000); // 5 minutes triggers screensaver
+        inactivityTimer = setTimeout(showScreensaver, 2 * 60 * 1000); // 2 minutes triggers screensaver
       }
     }
 
